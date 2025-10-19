@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Navigate to nearest place (map + directions)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-sA+e2kD3T9u4XvGkXgH8qh0u9V+9yZkGkz0fXjYkQVs=" crossorigin=""/>
+  <style>
+    body { margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; display:flex; height:100vh; }
+    #map { flex:1; }
+    #side { width:360px; max-width:40%; min-width:300px; padding:12px; box-sizing:border-box; background:#fff; overflow:auto; border-left:1px solid #ddd; }
+    h2{margin:6px 0 12px}
+    label{display:block;margin:8px 0 4px;font-weight:600}
+    select,input,button{width:100%; padding:8px; margin-bottom:8px; box-sizing:border-box}
+    .info{font-size:14px; margin:8px 0; color:#222}
+    .steps{list-style:none;padding:0;margin:8px 0}
+    .steps li{margin:6px 0;padding:8px;background:#f7f7f7;border-radius:6px}
+    .meta{font-size:13px;color:#555}
+    a.btn {display:inline-block;padding:8px 10px;background:#1976d2;color:#fff;border-radius:6px;text-decoration:none}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="side">
+    <h2>Navigate to nearest place</h2>
+
+    <label for="category">Choose category</label>
+    <select id="category">
+      <option value="amenity:hospital">Hospital</option>
+      <option value="amenity:pharmacy">Pharmacy</option>
+      <option value="amenity:restaurant">Restaurant</option>
+      <option value="shop:supermarket">Supermarket</option>
+      <option value="shop:clothes">Clothes shop</option>
+    </select>
+
+    <label for="radius">Search radius (meters)</label>
+    <input id="radius" type="number" value="2000" min="100" step="100" />
+
+    <button id="findBtn">Find nearest & Get directions</button>
+    <div class="info" id="status">Status: waiting for your action</div>
+
+    <div id="result" style="display:none">
+      <div class="meta" id="locs">You: — / Destination: —</div>
+      <div class="meta" id="distEta">Distance: — / ETA: —</div>
+      <p id="gmaplink"></p>
+
+      <h3>Turn-by-turn</h3>
+      <ul class="steps" id="stepsList"></ul>
+    </div>
+
+    <hr/>
+    <div class="meta">Tip: Allow browser location prompt. If location permission denied, you can manually set coordinates in console.</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-o9N1j/4gKX8kqQqObT6yV0vKqk1w4i8Y6b6w9s9b3zI=" crossorigin=""></script>
+
+  <script>
+    // ---------- Setup map ----------
+    const map = L.map('map').setView([22.5593, 88.3967], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let userMarker = null, destMarker = null, routeLayer = null;
+
+    function setStatus(s){ document.getElementById('status').textContent = 'Status: ' + s; }
+
+    // ---------- Utility: Haversine ----------
+    function haversine(lat1, lon1, lat2, lon2){
+      const R = 6371000;
+      const toRad = v => v * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+
+    // ---------- Get user's location ----------
+    async function getCurrentLocation(){
+      return new Promise((resolve, reject) => {
+        if(!navigator.geolocation){
+          reject('Geolocation not supported');
+          return;
+        }
+        setStatus('requesting browser location...');
+        navigator.geolocation.getCurrentPosition(pos => {
+          const lat = pos.coords.latitude, lon = pos.coords.longitude;
+          setStatus('location acquired');
+          resolve({lat, lon});
+        }, err => {
+          reject('Location denied or unavailable');
+        }, {enableHighAccuracy:true, timeout:15000});
+      });
+    }
+
+    // ---------- Overpass: find nearby by key:value ----------
+    async function findNearestOverpass(lat, lon, radius, key, value){
+      setStatus('querying Overpass for nearby ' + value + ' ...');
+      const q = `
+[out:json][timeout:25];
+(
+  node["${key}"="${value}"](around:${radius},${lat},${lon});
+  way["${key}"="${value}"](around:${radius},${lat},${lon});
+  relation["${key}"="${value}"](around:${radius},${lat},${lon});
+);
+out center tags;
+`;
+      const resp = await fetch('https://overpass-api.de/api/interpreter', {
+        method:'POST', body: q
+      });
+      if(!resp.ok) throw new Error('Overpass error: ' + resp.status);
+      const data = await resp.json();
+      if(!data.elements || data.elements.length===0) return [];
+      const results = data.elements.map(el => {
+        const tags = el.tags || {};
+        let lat2, lon2;
+        if(el.type === 'node'){ lat2 = el.lat; lon2 = el.lon; }
+        else if(el.center){ lat2 = el.center.lat; lon2 = el.center.lon; }
+        else { return null; }
+        return {
+          id: el.type + '/' + el.id,
+          name: tags.name || tags[Object.keys(tags)[0]] || 'Unnamed',
+          lat: lat2, lon: lon2, tags
+        };
+      }).filter(Boolean);
+      // sort by distance
+      results.sort((a,b) => {
+        const da = haversine(lat, lon, a.lat, a.lon);
+        const db = haversine(lat, lon, b.lat, b.lon);
+        return da - db;
+      });
+      return results;
+    }
+
+    // ---------- OSRM routing: get steps ----------
+    async function getRouteOSRM(lat1, lon1, lat2, lon2){
+      setStatus('getting route from OSRM...');
+      // OSRM demo server; returns steps when steps=true
+      const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson&steps=true`;
+      const resp = await fetch(url);
+      if(!resp.ok) throw new Error('Routing error: ' + resp.status);
+      const data = await resp.json();
+      if(!data.routes || !data.routes.length) throw new Error('No route found');
+      return data.routes[0];
+    }
+
+    // ---------- Render route + markers ----------
+    function renderRoute(route, userPos, destPos){
+      // clear old
+      if(routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+      if(userMarker) map.removeLayer(userMarker);
+      if(destMarker) map.removeLayer(destMarker);
+
+      userMarker = L.marker([userPos.lat, userPos.lon], {title:'You'}).addTo(map).bindPopup('You');
+      destMarker = L.marker([destPos.lat, destPos.lon], {title:'Destination'}).addTo(map).bindPopup(destPos.name || 'Destination');
+
+      routeLayer = L.geoJSON(route.geometry).addTo(map);
+      map.fitBounds(routeLayer.getBounds(), {padding:[60,60]});
+    }
+
+    // ---------- Show steps list ----------
+    function showSteps(steps){
+      const ul = document.getElementById('stepsList');
+      ul.innerHTML = '';
+      steps.forEach((s,i) => {
+        const li = document.createElement('li');
+        const dist = (s.distance >= 1000) ? (s.distance/1000).toFixed(2)+' km' : Math.round(s.distance)+' m';
+        li.innerHTML = `<strong>Step ${i+1}:</strong> ${s.maneuver.instruction || s.maneuver.type} <div class="meta">${dist} • ${s.duration.toFixed(0)} sec</div>`;
+        ul.appendChild(li);
+      });
+    }
+
+    // ---------- Convert OSRM step to simple instruction text ----------
+    function simplifySteps(osrmLeg){
+      const steps = [];
+      osrmLeg.steps.forEach(s => {
+        // Construct a readable instruction
+        let instr = s.maneuver.instruction || '';
+        if(!instr){
+          // fallback build
+          instr = s.maneuver.type + (s.name ? ' onto ' + s.name : '');
+        }
+        steps.push({
+          distance: s.distance,
+          duration: s.duration,
+          instruction: instr,
+          maneuver: s
+        });
+      });
+      return steps;
+    }
+
+    // ---------- Main action ----------
+    document.getElementById('findBtn').addEventListener('click', async ()=>{
+      const cat = document.getElementById('category').value; // e.g. "amenity:hospital"
+      const [key,value] = cat.split(':');
+      const radius = parseInt(document.getElementById('radius').value) || 2000;
+      setStatus('starting process...');
+
+      try {
+        const user = await getCurrentLocation(); // may throw
+        // place user marker and center
+        if(userMarker) map.removeLayer(userMarker);
+        userMarker = L.marker([user.lat, user.lon]).addTo(map).bindPopup('You').openPopup();
+        map.setView([user.lat, user.lon], 15);
+
+        const places = await findNearestOverpass(user.lat, user.lon, radius, key, value);
+        if(places.length===0){ setStatus('No results found within radius'); alert('No results found within radius'); return; }
+
+        const nearest = places[0];
+        document.getElementById('result').style.display='block';
+        document.getElementById('locs').textContent = `You: ${user.lat.toFixed(6)},${user.lon.toFixed(6)}  •  Destination: ${nearest.name} (${nearest.lat.toFixed(6)},${nearest.lon.toFixed(6)})`;
+
+        // compute straight-line distance
+        const d = haversine(user.lat, user.lon, nearest.lat, nearest.lon);
+        const dstr = d>=1000 ? (d/1000).toFixed(2)+' km' : Math.round(d)+' m';
+        document.getElementById('distEta').textContent = `Distance (straight): ${dstr}`;
+
+        // Google Maps link (optional)
+        const gmap = `https://www.google.com/maps/dir/?api=1&origin=${user.lat},${user.lon}&destination=${nearest.lat},${nearest.lon}&travelmode=driving`;
+        document.getElementById('gmaplink').innerHTML = `<a class="btn" href="${gmap}" target="_blank" rel="noopener">Open in Google Maps (navigation)</a>`;
+
+        // get driving route and steps
+        const route = await getRouteOSRM(user.lat, user.lon, nearest.lat, nearest.lon);
+        // route.distance (m), route.duration (s)
+        const routeDist = route.distance;
+        const routeDur = route.duration;
+        document.getElementById('distEta').textContent = `Distance (straight): ${dstr} • Route: ${(routeDist/1000).toFixed(2)} km • ETA: ${Math.round(routeDur/60)} min`;
+
+        // combine all steps from first leg
+        const osrmLeg = route.legs[0];
+        const simple = simplifySteps(osrmLeg);
+        showSteps(simple);
+
+        // render route on map
+        renderRoute(route, user, {lat:nearest.lat, lon:nearest.lon, name:nearest.name});
+
+        setStatus('Done — route displayed');
+      } catch (err) {
+        console.error(err);
+        setStatus('Error: ' + (err.message || err));
+        alert('Error: ' + (err.message || err));
+      }
+    });
+
+    // Optional: try to load initial location silently
+    (async ()=> {
+      try{
+        const pos = await getCurrentLocation();
+        map.setView([pos.lat, pos.lon], 15);
+      }catch(e){
+        // ignore if denied
+      }
+    })();
+
+  </script>
+</body>
+</html>

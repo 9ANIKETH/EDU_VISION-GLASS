@@ -1,0 +1,4 @@
+AIzaSyCHHv141Mi3O6sCr_Jgq3ysR6-CIh2-9z0 = gemini 
+AIzaSyC_180wWapJqYUEbRmDUEazSDSnFhAT2bA = maps
+
+AIzaSyApKrl1R6prVOvVHenCiPYFYnaR2lSUULU = gemini 2 

@@ -1,0 +1,22 @@
+osm_id,name,tag_value,lat,lon,distance_m
+node/7051238080,Vivekananda Eye Care Centre,hospital,22.5629144,88.3950521,1004.5
+node/11648826969,Divine Nursing Home,hospital,22.5662809,88.3927561,1037.2
+node/7065232720,Srijoni Healing Home,hospital,22.566876,88.3931999,1117.0
+node/7062656664,Poorva Eye Care,hospital,22.5682569,88.3918507,1161.3
+way/539480618,"I.D & B.G. Hospital, Beliaghata",hospital,22.5645393,88.3983765,1390.1
+node/10679793548,ID Hospital,hospital,22.5645031,88.3984031,1390.9
+node/7048046835,Micro Phaco Surgery Centre,hospital,22.5572974,88.3723557,1428.6
+way/105833317,hospital,hospital,22.5646152,88.3722142,1545.6
+way/753625286,Calcutta Pavlov Hospital,hospital,22.5477098,88.375795,1664.6
+way/1234548390,Nil Ratan Sircar Medical College and Hospital,hospital,22.5638683,88.3705715,1675.3
+way/539609612,Dr. B. C. Roy Post Graduate Institute of Paediatric Sciences,hospital,22.5742933,88.3875618,1678.2
+way/383577205,B R Singh Hospital,hospital,22.5655861,88.3708844,1713.8
+node/5832603485,"Bekar Ward, NRS Medical College",hospital,22.5633946,88.3698611,1730.1
+node/5832603186,"UNB building, NRS medical college",hospital,22.5648794,88.3695623,1809.9
+node/6180273185,"Obs & Gynaecology Building, NRS",hospital,22.563659,88.3690769,1815.6
+node/5832603585,NRS Medical college & Hospital,hospital,22.5652972,88.3691544,1865.5
+way/1390913883,hospital,hospital,22.5434756,88.3798072,1870.6
+node/5832603385,NRS OPD Building,hospital,22.5645047,88.3686937,1880.5
+node/5832603185,Dr Rafi Ahmed Dental College & Hospital,hospital,22.5627691,88.3679312,1906.5
+node/5832603685,"Dr Rafi Ahmed Dental College & Hospital, Old Campus",hospital,22.5629472,88.367509,1953.0
+way/491293458,ESI OFFICE,hospital,22.5727961,88.3734874,1985.8
